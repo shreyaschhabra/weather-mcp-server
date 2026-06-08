@@ -1,0 +1,27 @@
+{
+  "name": "weather-mcp-server",
+  "version": "1.0.0",
+  "description": "Extended MCP weather server with forecasts, alerts, and multi-city support",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "npx tsx main.ts",
+    "chat": "npx tsx client.ts",
+    "chat-gemini": "npx tsx client-gemini.ts",
+    "inspect": "npx -y @modelcontextprotocol/inspector npx tsx main.ts",
+    "build": "tsc"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@modelcontextprotocol/sdk": "^1.13.2",
+    "zod": "^3.25.67"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}
