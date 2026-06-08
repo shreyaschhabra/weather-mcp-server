@@ -4,7 +4,8 @@ import sys
 import threading
 from pathlib import Path
 
-import google.generativeai as genai
+import google.genai as genai
+from google.genai import types
 import streamlit as st
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -29,27 +30,27 @@ def _bg_loop() -> asyncio.AbstractEventLoop:
 def arun(coro, timeout: int = 60):
     return asyncio.run_coroutine_threadsafe(coro, _bg_loop()).result(timeout=timeout)
 
-# ─── Schema conversion ────────────────────────────────────────────────────────
+# ─── Schema conversion (JSON Schema → google.genai types.Schema) ─────────────
 
-def _schema_to_proto(s: dict) -> genai.protos.Schema:
+def _schema_to_genai(s: dict) -> types.Schema:
     TYPE = {
-        "string": genai.protos.Type.STRING,
-        "number": genai.protos.Type.NUMBER,
-        "integer": genai.protos.Type.INTEGER,
-        "boolean": genai.protos.Type.BOOLEAN,
-        "array": genai.protos.Type.ARRAY,
-        "object": genai.protos.Type.OBJECT,
+        "string": types.Type.STRING,
+        "number": types.Type.NUMBER,
+        "integer": types.Type.INTEGER,
+        "boolean": types.Type.BOOLEAN,
+        "array": types.Type.ARRAY,
+        "object": types.Type.OBJECT,
     }
-    t = TYPE.get(s.get("type", "string"), genai.protos.Type.STRING)
+    t = TYPE.get(s.get("type", "string"), types.Type.STRING)
     kw: dict = {"type": t}
     if d := s.get("description"):
         kw["description"] = d
-    if t == genai.protos.Type.ARRAY and "items" in s:
-        kw["items"] = _schema_to_proto(s["items"])
-    if t == genai.protos.Type.OBJECT and "properties" in s:
-        kw["properties"] = {k: _schema_to_proto(v) for k, v in s["properties"].items()}
+    if t == types.Type.ARRAY and "items" in s:
+        kw["items"] = _schema_to_genai(s["items"])
+    if t == types.Type.OBJECT and "properties" in s:
+        kw["properties"] = {k: _schema_to_genai(v) for k, v in s["properties"].items()}
         kw["required"] = s.get("required", [])
-    return genai.protos.Schema(**kw)
+    return types.Schema(**kw)
 
 # ─── MCP connection (shared singleton) ───────────────────────────────────────
 
@@ -79,13 +80,13 @@ def get_mcp() -> _MCP:
         res = await mcp.session.list_tools()
         mcp.tools = res.tools
         mcp.fn_decls = [
-            genai.protos.FunctionDeclaration(
+            types.FunctionDeclaration(
                 name=t.name,
                 description=t.description or "",
-                parameters=genai.protos.Schema(
-                    type=genai.protos.Type.OBJECT,
+                parameters=types.Schema(
+                    type=types.Type.OBJECT,
                     properties={
-                        k: _schema_to_proto(v)
+                        k: _schema_to_genai(v)
                         for k, v in (t.inputSchema.get("properties") or {}).items()
                     },
                     required=t.inputSchema.get("required") or [],
@@ -104,39 +105,55 @@ def query(message: str, mcp: _MCP, api_key: str) -> dict:
     Runs the full Gemini + MCP tool-use loop.
     Returns {"response": str, "tool_calls": [{"name", "args", "result"}]}
     """
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(
-        model_name="gemini-3.1-flash-lite",
-        tools=[genai.protos.Tool(function_declarations=mcp.fn_decls)],
+    client = genai.Client(api_key=api_key)
+    config = types.GenerateContentConfig(
+        tools=[types.Tool(function_declarations=mcp.fn_decls)],
     )
-    chat = model.start_chat()
+    contents: list[types.Content] = [
+        types.Content(role="user", parts=[types.Part(text=message)])
+    ]
 
-    async def _loop():
-        response = await asyncio.to_thread(chat.send_message, message)
+    async def _loop() -> dict:
         tool_calls: list[dict] = []
 
         while True:
-            fns = [p.function_call for p in response.parts if p.function_call.name]
+            response = await client.aio.models.generate_content(
+                model="gemini-3.1-flash-lite",
+                contents=contents,
+                config=config,
+            )
 
-            if not fns:
-                return {"response": response.text, "tool_calls": tool_calls}
+            # Check for function calls in response
+            fn_calls = response.function_calls
+            if not fn_calls:
+                return {"response": response.text or "", "tool_calls": tool_calls}
 
-            parts = []
-            for fn in fns:
-                res = await mcp.session.call_tool(fn.name, dict(fn.args))
+            # Append the model's response (with function calls) to history
+            contents.append(response.candidates[0].content)
+
+            # Execute each tool and collect function response parts
+            fn_response_parts: list[types.Part] = []
+            for fn in fn_calls:
+                res = await mcp.session.call_tool(fn.name, dict(fn.args or {}))
                 result_text = "\n".join(
                     c.text for c in res.content if hasattr(c, "text")
                 )
-                tool_calls.append({"name": fn.name, "args": dict(fn.args), "result": result_text})
-                parts.append(
-                    genai.protos.Part(
-                        function_response=genai.protos.FunctionResponse(
-                            name=fn.name, response={"output": result_text}
+                tool_calls.append(
+                    {"name": fn.name, "args": dict(fn.args or {}), "result": result_text}
+                )
+                fn_response_parts.append(
+                    types.Part(
+                        function_response=types.FunctionResponse(
+                            name=fn.name,
+                            response={"output": result_text},
                         )
                     )
                 )
 
-            response = await asyncio.to_thread(chat.send_message, parts)
+            # Append function results as a user turn
+            contents.append(
+                types.Content(role="user", parts=fn_response_parts)
+            )
 
     return arun(_loop())
 
