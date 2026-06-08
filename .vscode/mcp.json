@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "weather-mcp-server": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "tsx", "${workspaceFolder}/main.ts"]
+    }
+  }
+}

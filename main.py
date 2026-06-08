@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 from mcp.server.fastmcp import FastMCP
 
@@ -123,8 +124,6 @@ async def get_hourly_forecast(city: str) -> str:
 @mcp.tool()
 async def compare_cities_weather(cities: list[str]) -> str:
     """Compare current weather across 2-5 cities side by side. cities: list of city names."""
-    import asyncio
-
     async def fetch_city(city: str) -> dict:
         geo = await geocode(city)
         if not geo:

@@ -19,18 +19,13 @@ All weather data is sourced from the [Open-Meteo](https://open-meteo.com/) famil
 9. [Installation](#installation)
 10. [Configuration](#configuration)
 11. [Running the Project](#running-the-project)
-    - [Streamlit Web UI](#streamlit-web-ui)
-    - [FastAPI Web Server](#fastapi-web-server)
-    - [Command-Line Chat (Python)](#command-line-chat-python)
-    - [Command-Line Chat (TypeScript)](#command-line-chat-typescript)
-12. [API Reference](#api-reference)
-13. [Deployment](#deployment)
+12. [Deployment](#deployment)
     - [Streamlit Community Cloud](#streamlit-community-cloud)
     - [Railway](#railway)
     - [Render](#render)
-14. [Data Sources](#data-sources)
-15. [Environment Variables](#environment-variables)
-16. [Roadmap](#roadmap)
+13. [Data Sources](#data-sources)
+14. [Environment Variables](#environment-variables)
+15. [Roadmap](#roadmap)
 
 ---
 
@@ -148,8 +143,6 @@ The LLM is never directly fetching weather data. It only decides which tool to c
 | HTTP Requests | `httpx` (async) |
 | LLM | Google Gemini 3.1 Flash Lite via `google-generativeai` |
 | Web UI | Streamlit |
-| REST API | FastAPI + Uvicorn |
-| TypeScript Client | `@modelcontextprotocol/sdk`, `@google/generative-ai` |
 | Weather Data | Open-Meteo (free, no key required) |
 
 ---
@@ -159,23 +152,13 @@ The LLM is never directly fetching weather data. It only decides which tool to c
 ```
 weather-mcp-server/
 |
-|-- main.py                  # MCP server — all 12 tool definitions
-|-- streamlit_app.py         # Streamlit web UI (primary interface)
-|-- app.py                   # FastAPI REST server (alternative interface)
-|-- client_gemini.py         # Python CLI chat client
-|-- client-gemini.ts         # TypeScript CLI chat client
-|-- main.ts                  # TypeScript version of the MCP server
-|
-|-- requirements.txt         # Python dependencies
-|-- package.json             # Node.js dependencies (TypeScript client)
-|-- tsconfig.json            # TypeScript configuration
+|-- main.py              # MCP server — all 12 tool definitions
+|-- streamlit_app.py     # Streamlit web UI + Gemini agentic loop
+|-- requirements.txt     # Python dependencies
 |-- .gitignore
 |
-|-- .streamlit/
-|   `-- config.toml          # Streamlit dark theme configuration
-|
-`-- static/
-    `-- index.html           # Standalone HTML frontend for FastAPI server
+`-- .streamlit/
+    `-- config.toml      # Streamlit dark theme configuration
 ```
 
 ---
@@ -439,7 +422,6 @@ Current wave height with sea state label (Glassy / Calm / Slight / Moderate / Ro
 
 - Python 3.11 or higher
 - A Google Gemini API key (free tier available at [aistudio.google.com](https://aistudio.google.com))
-- Node.js 18+ and npm (only required for the TypeScript client)
 - Git
 
 ---
@@ -447,15 +429,9 @@ Current wave height with sea state label (Glassy / Calm / Slight / Moderate / Ro
 ## Installation
 
 ```bash
-# Clone the repository
 git clone https://github.com/shreyaschhabra/weather-mcp-server.git
 cd weather-mcp-server
-
-# Install Python dependencies
 pip install -r requirements.txt
-
-# (Optional) Install Node.js dependencies for the TypeScript client
-npm install
 ```
 
 ---
@@ -479,10 +455,6 @@ The MCP server (`main.py`) does not require any API key. It only calls Open-Mete
 
 ## Running the Project
 
-### Streamlit Web UI
-
-The primary interface. Provides a full chat UI with a tool sidebar, example prompts, and live tool call display.
-
 ```bash
 GEMINI_API_KEY="your_key" streamlit run streamlit_app.py
 ```
@@ -490,58 +462,9 @@ GEMINI_API_KEY="your_key" streamlit run streamlit_app.py
 Open [http://localhost:8501](http://localhost:8501) in your browser.
 
 **What the UI shows:**
-- Left sidebar: all 12 tools with descriptions and one-click example prompts
+- Left sidebar: all 12 tools with descriptions and one-click example prompts per tool
 - Chat area: user messages, a collapsible "Tools used" section showing tool name, arguments as metrics, and raw tool output, followed by Gemini's final response
 - Input field at the bottom with Enter-to-send support
-
----
-
-### FastAPI Web Server
-
-An alternative REST-based interface that streams responses via server-sent events (SSE). Includes a standalone dark-themed HTML/JS frontend.
-
-```bash
-GEMINI_API_KEY="your_key" uvicorn app:app --host 0.0.0.0 --port 8000
-```
-
-Open [http://localhost:8000](http://localhost:8000) in your browser.
-
-The server exposes two endpoints:
-
-- `GET /api/tools` — returns the full list of available tools
-- `POST /api/chat` — accepts `{"message": "..."}` and streams SSE events
-
-SSE event types:
-
-| Event type | Payload | Description |
-|---|---|---|
-| `tool_call` | `{name, args}` | Gemini has invoked a tool |
-| `tool_result` | `{name, content}` | The tool has returned data |
-| `text` | `{content}` | Gemini's final text response |
-| `error` | `{content}` | An error occurred |
-| `done` | — | Stream complete |
-
----
-
-### Command-Line Chat (Python)
-
-A terminal-based interactive chat client. Connects to the MCP server as a subprocess and uses the same agentic loop as the web interfaces.
-
-```bash
-GEMINI_API_KEY="your_key" python3 client_gemini.py
-```
-
-Type any weather question at the `You:` prompt. Type `exit` to quit.
-
----
-
-### Command-Line Chat (TypeScript)
-
-The TypeScript equivalent of the Python CLI client. Uses `@modelcontextprotocol/sdk` for MCP and `@google/generative-ai` for Gemini.
-
-```bash
-GEMINI_API_KEY="your_key" npm run chat-gemini
-```
 
 ---
 
@@ -567,58 +490,6 @@ The server communicates over stdio using JSON-RPC 2.0. To connect it to Claude D
 ```
 
 To connect it to VS Code Copilot, the `.vscode/mcp.json` configuration is already included in the repository.
-
----
-
-## API Reference
-
-### GET /api/tools
-
-Returns the list of all tools registered on the MCP server.
-
-**Response**
-
-```json
-[
-  {
-    "name": "get_weather",
-    "description": "Get the current weather for a city.",
-    "parameters": {
-      "city": {
-        "type": "string",
-        "description": "City name"
-      }
-    },
-    "required": ["city"]
-  }
-]
-```
-
----
-
-### POST /api/chat
-
-Initiates a streaming chat request. The server runs the full Gemini + MCP agentic loop and streams events as they occur.
-
-**Request body**
-
-```json
-{
-  "message": "What is the weather in London?"
-}
-```
-
-**Response** — `text/event-stream`
-
-```
-data: {"type": "tool_call", "name": "get_weather", "args": {"city": "London"}}
-
-data: {"type": "tool_result", "name": "get_weather", "content": "Location: London...\nTemperature: 14.1°C..."}
-
-data: {"type": "text", "content": "The current weather in London is 14.1°C with slight rain."}
-
-data: {"type": "done"}
-```
 
 ---
 
